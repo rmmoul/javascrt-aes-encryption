@@ -1,0 +1,159 @@
+<html>
+	<script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>
+	
+	<script>
+
+	async function encryptMessage(message, password) {
+		// Convert strings to Uint8Arrays.
+		const encoder = new TextEncoder();
+		const passwordBytes = encoder.encode(password);
+		const messageBytes = encoder.encode(message);
+
+		// Generate a random salt for key derivation.
+		const salt = crypto.getRandomValues(new Uint8Array(16));
+
+		// Import the password as key material.
+		const keyMaterial = await crypto.subtle.importKey(
+			'raw',
+			passwordBytes,
+			{ name: 'PBKDF2' },
+			false,
+			['deriveKey']
+		);
+
+	// Derive an AES-CBC key using PBKDF2.
+		const key = await crypto.subtle.deriveKey(
+			{
+			name: 'PBKDF2',
+			salt: salt,
+			iterations: 100000, // A higher count means better security but slower performance.
+			hash: 'SHA-256'
+			},
+			keyMaterial,
+			{ name: 'AES-CBC', length: 256 },
+			false,
+			['encrypt']
+		);
+
+	// Generate a random Initialization Vector.
+		const iv = crypto.getRandomValues(new Uint8Array(16));
+
+		// Encrypt the message.
+		const encryptedContent = await crypto.subtle.encrypt(
+			{
+			name: 'AES-CBC',
+			iv: iv
+			},
+			key,
+			messageBytes
+		);
+
+		// Combine salt, IV, and ciphertext into a single Uint8Array.
+		const saltLength = salt.byteLength;
+		const ivLength = iv.byteLength;
+		const ciphertext = new Uint8Array(encryptedContent);
+		const combined = new Uint8Array(saltLength + ivLength + ciphertext.byteLength);
+
+		combined.set(salt, 0);
+		combined.set(iv, saltLength);
+		combined.set(ciphertext, saltLength + ivLength);
+
+		// Convert combined data to a Base64 string.
+		const base64String = btoa(String.fromCharCode(...combined));
+		return base64String;
+	}
+
+	async function decryptMessage(encryptedBase64, password) {
+		// Convert the Base64 string back into a Uint8Array.
+		const combined = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
+
+		// Extract the salt (first 16 bytes), IV (next 16 bytes), and ciphertext (remaining bytes).
+		const salt = combined.slice(0, 16);
+		const iv = combined.slice(16, 32);
+		const ciphertext = combined.slice(32);
+
+		// Encode the password as Uint8Array.
+		const encoder = new TextEncoder();
+		const passwordBytes = encoder.encode(password);
+
+		// Import the password as key material.
+		const keyMaterial = await crypto.subtle.importKey(
+			'raw',
+			passwordBytes,
+			{ name: 'PBKDF2' },
+			false,
+			['deriveKey']
+		);
+
+		// Derive the same AES-CBC key using PBKDF2 (must use the same salt, iterations, and hash).
+		const key = await crypto.subtle.deriveKey(
+			{
+			name: 'PBKDF2',
+			salt: salt,
+			iterations: 100000,
+			hash: 'SHA-256'
+			},
+			keyMaterial,
+			{ name: 'AES-CBC', length: 256 },
+			false,
+			['decrypt']
+		);
+
+		// Decrypt the ciphertext.
+		const decryptedContent = await crypto.subtle.decrypt(
+			{
+			name: 'AES-CBC',
+			iv: iv
+			},
+			key,
+			ciphertext
+		);
+
+		// Convert the decrypted bytes back into a string.
+		const decoder = new TextDecoder();
+		return decoder.decode(decryptedContent);
+	}
+
+	$(document).on('click', 'a.encrypt', function(e) {
+		e.preventDefault(); 
+
+		var password = $('.enc_password').val();
+		var message = $('.enc_message').val();
+
+		encryptMessage(message, password).then(encrypted => set_enc_message(encrypted)).catch(err => console.error("Encryption error:", err));
+	});
+
+	function set_enc_message(message){
+		$('.dec_message').val(message);
+	}
+
+	$(document).on('click', 'a.dencrypt', function(e) {
+		e.preventDefault(); 
+
+		var password = $('.dec_password').val();
+		var message = $('.dec_message').val();
+
+		decryptMessage(message, password).then(plaintext => set_dec_message(plaintext)).catch(err => console.error("Decryption error:", err));
+	});
+
+	function set_dec_message(message){
+		$('.dec_message').val(message);
+	}
+
+</script>
+<body>
+
+	<input type="text" class="enc_password" size="100" placeholder="Password"><br>
+	<textarea class="enc_message" rows="4" cols="50" placeholder="Message"></textarea><br>
+	<a href="#" class="encrypt">Encrypt</a>
+
+	<hr>
+
+	<input type="text" class="dec_password" size="100" placeholder="Password"><br>
+	<textarea class="dec_message"  rows="4" cols="50" placeholder="Message"></textarea><br>
+	<a href="#" class="dencrypt">Dencrypt</a>
+
+
+
+</body>
+</html>
